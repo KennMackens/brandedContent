@@ -35,8 +35,17 @@
     <div class="max-w-4xl mx-auto">
         <!-- Enhanced header with better styling -->
         <div class="text-center mb-12">
-            <h1 class="text-4xl font-bold text-gray-900 mb-3">Doorlooptijd Calculator</h1>
-            <p class="text-gray-600 text-lg">Upload uw HTML-bestand om de doorlooptijd te berekenen</p>
+            <!-- Bèta Label Added -->
+            <span class="inline-block bg-yellow-300 text-yellow-800 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-3">
+                Bèta
+            </span>
+            <h1 class="text-4xl font-bold text-gray-900 mb-4">Doorlooptijdcalculator</h1>
+            <!-- Replaced subtitle with step-by-step plan and reduced font size -->
+            <ol class="text-gray-600 text-sm list-decimal list-inside text-left max-w-md mx-auto space-y-2">
+                <li>Exporteer de 'activiteiten registratie' uit Monday, gefilterd op een specifieke groep</li>
+                <li>Zet deze sheet via Google sheets om naar een html.-bestand</li>
+                <li>Laad je html.-bestand hier op voor de analyse</li>
+            </ol>
         </div>
         
         <!-- Enhanced upload section with drag-and-drop and better visual design -->
@@ -270,6 +279,7 @@
                         return;
                     }
                     
+                    // Get all rows (skip header by starting from tbody)
                     const rows = Array.from(tbody.querySelectorAll('tr'));
                     
                     if (rows.length === 0) {
@@ -277,29 +287,54 @@
                         return;
                     }
                     
+                    // Parse rows into objects
                     const allRows = rows.map((row, rowIndex) => {
+                        // In the provided HTML, the first child is <th>, others are <td>.
+                        // We'll just grab all <td> elements.
                         const cells = Array.from(row.querySelectorAll('td'));
+                        // If the first cell is a <th> (row header), it's not included,
+                        // which is what we want.
+                        
                         const cellData = cells.map(cell => cell.textContent.trim());
                         
                         // Debug: log first few rows to see structure
                         if (rowIndex < 3) {
-                            console.log('[v0] Row', rowIndex, ':', cellData);
-                            console.log('[v0] Column 2 (Name):', cellData[2]);
+                            console.log('Row', rowIndex, ':', cellData);
+                            console.log('Column 2 (Name):', cellData[2]);
                         }
                         
                         return cellData;
                     }).filter(row => row.length > 0);
                     
-                    console.log('[v0] Total rows parsed:', allRows.length);
+                    console.log('Total rows parsed:', allRows.length);
                     
                     // Step 1: Filter rows where Name (3rd column, index 2) equals 'Status'
                     const statusRows = allRows.filter(row => row[2] === 'Status');
                     
-                    console.log('[v0] Status rows found:', statusRows.length);
+                    console.log('Status rows found:', statusRows.length);
                     
                     if (statusRows.length === 0) {
+                        // Try to find status in column 1 (index 0) as a fallback
+                        const fallbackStatusRows = allRows.filter(row => row[0] === 'Status');
+                        console.log('Fallback status rows found:', fallbackStatusRows.length);
+                        
+                        // Check if other columns might contain 'Status'
+                        let otherStatusCols = [];
+                        allRows.slice(0, 20).forEach(row => {
+                            row.forEach((cell, i) => {
+                                if (cell === 'Status' && i !== 2) {
+                                    otherStatusCols.push(i);
+                                }
+                            });
+                        });
+                        
                         const sampleNames = allRows.slice(0, 5).map(row => row[2]).filter(name => name);
-                        showError(`Geen rijen gevonden met Name = "Status". Gevonden waarden in kolom 3: ${sampleNames.join(', ')}`);
+                        let errorMsg = `Geen rijen gevonden met Name = "Status" in de 3e data kolom. Gevonden waarden in kolom 3: ${sampleNames.join(', ')}.`;
+                        if (otherStatusCols.length > 0) {
+                            errorMsg += ` 'Status' is wel gevonden in kolom(men) ${[...new Set(otherStatusCols)].join(', ')}. Klopt de bestandsstructuur?`;
+                        }
+                        
+                        showError(errorMsg);
                         return;
                     }
                     
@@ -313,69 +348,70 @@
                         itemGroups[itemName].push(row);
                     });
                     
-                    console.log('[v0] Item groups:', Object.keys(itemGroups));
+                    console.log('Item groups:', Object.keys(itemGroups));
                     
                     // Step 3 & 4: Calculate start and end moments for each item
                     const results = [];
                     
                     for (const [itemName, rows] of Object.entries(itemGroups)) {
-                        console.log('[v0] Processing item:', itemName);
-                        console.log('[v0] Rows for this item:', rows.length);
+                        console.log('Processing item:', itemName);
+                        console.log('Rows for this item:', rows.length);
                         
                         // Log all 'To' column values for this item
                         const toValues = rows.map(row => row[4]);
-                        console.log('[v0] "To" column values:', toValues);
+                        console.log('"To" column values:', toValues);
                         
                         // Find end moment: first row where To (5th column, index 4) is 'Tekst akkoord'
                         const endRows = rows.filter(row => row[4] === 'Tekst akkoord');
-                        console.log('[v0] End rows found:', endRows.length);
+                        console.log('End rows found:', endRows.length);
                         
                         if (endRows.length === 0) {
-                            console.log('[v0] No end date found for:', itemName);
+                            console.log('No end date found for:', itemName);
                             continue;
                         }
                         
                         const endDateString = endRows[0][8]; // Item creation date & time (9th column, index 8)
-                        console.log('[v0] End date string:', endDateString);
+                        console.log('End date string:', endDateString);
                         const endDate = parseDate(endDateString);
                         
                         if (!endDate) {
-                            console.log('[v0] Failed to parse end date for:', itemName);
+                            console.log('Failed to parse end date for:', itemName);
                             continue;
                         }
                         
                         // Find start moment: earliest date where To is 'Gevraagd' OR starts with 'Schrijven'
                         const startRows = rows.filter(row => {
                             const toValue = row[4];
+                            // Check for 'Gevraagd' or 'Schrijven...' (with ellipsis)
                             return toValue === 'Gevraagd' || toValue.startsWith('Schrijven');
                         });
                         
-                        console.log('[v0] Start rows found:', startRows.length);
+                        console.log('Start rows found:', startRows.length);
                         
                         if (startRows.length === 0) {
-                            console.log('[v0] No start date found for:', itemName);
+                            console.log('No start date found for:', itemName);
                             continue;
                         }
                         
                         const startDates = startRows
                             .map(row => {
                                 const dateStr = row[8];
-                                console.log('[v0] Parsing start date:', dateStr);
+                                console.log('Parsing start date:', dateStr);
                                 return parseDate(dateStr);
                             })
                             .filter(date => date !== null);
                         
                         if (startDates.length === 0) {
-                            console.log('[v0] Failed to parse any start dates for:', itemName);
+                            console.log('Failed to parse any start dates for:', itemName);
                             continue;
                         }
                         
                         const startDate = new Date(Math.min(...startDates));
-                        console.log('[v0] Start date:', startDate, 'End date:', endDate);
+                        console.log('Start date:', startDate, 'End date:', endDate);
                         
                         // Calculate weekdays
                         const weekdays = calculateWeekdays(startDate, endDate);
-                        console.log('[v0] Weekdays calculated:', weekdays);
+                        console.log('Weekdays calculated:', weekdays);
                         
                         results.push({
                             itemName: itemName,
@@ -385,7 +421,7 @@
                         });
                     }
                     
-                    console.log('[v0] Total results:', results.length);
+                    console.log('Total results:', results.length);
                     
                     if (results.length === 0) {
                         showError('Geen items gevonden met zowel een start- als eindmoment.');
@@ -425,7 +461,7 @@
                     resultsSection.classList.remove('hidden');
                     
                 } catch (error) {
-                    console.log('[v0] Error:', error);
+                    console.log('Error:', error);
                     showError('Fout bij het verwerken van het bestand: ' + error.message);
                 }
             };
@@ -484,6 +520,7 @@
             textArea.select();
 
             try {
+                // Use execCommand as a fallback for iframe environments
                 document.execCommand('copy');
                 
                 // Show "Copied!" message
@@ -564,6 +601,7 @@
             }
             
             // If start and end are on the same weekday, it should count as 1 day
+            // But only if the count is 0 (meaning they are the same day)
             if (count === 0 && startDate.getDay() === endDate.getDay() && startDate.getDay() !== 0 && startDate.getDay() !== 6) {
                  return 1;
             }
