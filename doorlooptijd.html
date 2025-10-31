@@ -130,9 +130,10 @@
                 <div class="overflow-x-auto rounded-lg border border-gray-200">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gradient-to-r from-blue-50 to-indigo-50">
-                            <!-- Updated table headers -->
+                            <!-- *** AANGEPASTE TABELKOPPEN *** -->
                             <tr>
                                 <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Item's Name</th>
+                                <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">ON-nummer</th>
                                 <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Startdatum</th>
                                 <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Einddatum</th>
                                 <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Doorlooptijd (weekdagen)</th>
@@ -256,7 +257,7 @@
             }, 500);
         }
 
-        // Process the uploaded file
+        // *** AANGEPASTE processFile FUNCTIE ***
         function processFile(file) {
             const reader = new FileReader();
             
@@ -266,7 +267,6 @@
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(htmlContent, 'text/html');
                     
-                    // Find the first table
                     const table = doc.querySelector('table');
                     if (!table) {
                         showError('Geen tabel gevonden in het HTML-bestand.');
@@ -279,7 +279,6 @@
                         return;
                     }
                     
-                    // Get all rows (skip header by starting from tbody)
                     const rows = Array.from(tbody.querySelectorAll('tr'));
                     
                     if (rows.length === 0) {
@@ -287,146 +286,149 @@
                         return;
                     }
                     
-                    // Parse rows into objects
                     const allRows = rows.map((row, rowIndex) => {
-                        // In the provided HTML, the first child is <th>, others are <td>.
-                        // We'll just grab all <td> elements.
                         const cells = Array.from(row.querySelectorAll('td'));
-                        // If the first cell is a <th> (row header), it's not included,
-                        // which is what we want.
-                        
                         const cellData = cells.map(cell => cell.textContent.trim());
-                        
-                        // Debug: log first few rows to see structure
-                        if (rowIndex < 3) {
-                            console.log('Row', rowIndex, ':', cellData);
-                            console.log('Column 2 (Name):', cellData[2]);
-                        }
-                        
                         return cellData;
                     }).filter(row => row.length > 0);
                     
                     console.log('Total rows parsed:', allRows.length);
                     
-                    // Step 1: Filter rows where Name (4th column, index 3) equals 'Status'
-                    const statusRows = allRows.filter(row => row[3] === 'Status'); // Alleen index 3
+                    // Stap 1: Filter *eerst* op de rijen die we überhaupt nodig hebben
+                    const relevantRows = allRows.filter(row => {
+                        const rowName = row[3]; // Kolom index 3 (Name)
+                        return rowName === 'Status' || rowName === 'Supplement' || rowName === 'ON-nummer';
+                    });
                     
-                    console.log('Status rows found:', statusRows.length);
-                    
-                    if (statusRows.length === 0) {
-                        // Try to find status in column 1 (index 0) as a fallback
-                        const fallbackStatusRows = allRows.filter(row => row[0] === 'Status');
-                        console.log('Fallback status rows found:', fallbackStatusRows.length);
-                        
-                        // Check if other columns might contain 'Status'
-                        let otherStatusCols = [];
-                        allRows.slice(0, 20).forEach(row => {
-                            row.forEach((cell, i) => {
-                                if (cell === 'Status' && i !== 3) { // Check other columns
-                                    otherStatusCols.push(i);
-                                }
-                            });
-                        });
-                        
-                        const sampleNamesCol3 = allRows.slice(0, 5).map(row => row[3]).filter(name => name); // Check new index 3
+                    console.log('Relevant rows found:', relevantRows.length);
 
-                        let errorMsg = `Geen rijen gevonden met Name = "Status" in de 4e data kolom (index 3). Gevonden waarden in die kolom: [${sampleNamesCol3.join(', ')}].`;
-                        if (otherStatusCols.length > 0) {
-                            errorMsg += ` 'Status' is wel gevonden in kolom(men) ${[...new Set(otherStatusCols)].join(', ')}. Klopt de bestandsstructuur?`;
-                        }
-                        
-                        showError(errorMsg);
-                        return;
+                    if (relevantRows.length === 0) {
+                         showError('Geen "Status", "Supplement" of "ON-nummer" rijen gevonden in kolom 3. Controleer het bestand.');
+                         return;
                     }
-                    
-                    // Step 2: Group by Item's name (3nd column, index 2)
+
+                    // Stap 2: Groepeer rijen op Item's Name
                     const itemGroups = {};
-                    statusRows.forEach(row => {
+                    relevantRows.forEach(row => {
                         const itemName = row[2]; // Index 2 voor Item's Name
+                        if (!itemName) return; // Sla rijen zonder itemnaam over
                         if (!itemGroups[itemName]) {
                             itemGroups[itemName] = [];
                         }
                         itemGroups[itemName].push(row);
                     });
-                    
-                    console.log('Item groups:', Object.keys(itemGroups));
-                    
-                    // Step 3 & 4: Calculate start and end moments for each item
+
+                    console.log('Item groups found:', Object.keys(itemGroups).length);
+
                     const results = [];
-                    
-                    for (const [itemName, rows] of Object.entries(itemGroups)) {
-                        console.log('Processing item:', itemName);
-                        console.log('Rows for this item:', rows.length);
+
+                    // Stap 3: Verwerk elke itemgroep apart
+                    for (const [itemName, allItemRows] of Object.entries(itemGroups)) {
                         
-                        // Log all 'To' column values for this item
-                        const toValues = rows.map(row => row[5]); // Check index 5
-                        console.log('"To" column values:', toValues);
-                        
-                        // Find end moment: first row where To (col 5) is 'Tekst akkoord'
-                        const endRows = rows.filter(row => row[5] === 'Tekst akkoord'); // Alleen index 5
-                        console.log('End rows found:', endRows.length);
-                        
-                        if (endRows.length === 0) {
-                            console.log('No end date found for:', itemName);
-                            continue;
+                        // *** NIEUWE LOGICA: "TAG & GROUP" ***
+                        let currentOnNummer = 'N/A';
+                        const taggedRows = [];
+
+                        // 1. TAGGING PASS (OMGEKEERD)
+                        // Loop van onder naar boven om statusrijen te 'taggen' met het
+                        // eerste ON-nummer dat ze *onder* zich vinden.
+                        for (const row of [...allItemRows].reverse()) { // [...allItemRows] maakt een kopie voor reverse()
+                            const rowName = row[3];
+
+                            if (rowName === 'ON-nummer') {
+                                currentOnNummer = row[5] || 'N/A'; // Waarde staat in kolom 5
+                            } else if (rowName === 'Status' || rowName === 'Supplement') {
+                                // Maak een kopie van de rij en voeg de tag toe
+                                const taggedRow = [...row];
+                                taggedRow.push(currentOnNummer); // Tag wordt de laatste index
+                                taggedRows.push(taggedRow);
+                            }
+                        }
+
+                        // 2. RE-GROUP PASS (OP TAG)
+                        // De 'taggedRows' zijn nu alleen Status/Supplement rijen,
+                        // maar ze staan in omgekeerde chronologische volgorde.
+                        const onNummerGroups = {};
+                        for (const taggedRow of taggedRows) {
+                            const onNummerTag = taggedRow[taggedRow.length - 1]; // Haal de tag op
+
+                            if (!onNummerGroups[onNummerTag]) {
+                                onNummerGroups[onNummerTag] = {
+                                    rows: [],
+                                    itemName: itemName // Koppel de itemnaam
+                                };
+                            }
+                            onNummerGroups[onNummerTag].rows.push(taggedRow);
                         }
                         
-                        // Item creation date & time (col 9)
-                        const endDateString = endRows[0][9]; // Alleen index 9
-                        console.log('End date string:', endDateString);
-                        const endDate = parseDate(endDateString);
-                        
-                        if (!endDate) {
-                            console.log('Failed to parse end date for:', itemName);
-                            continue;
+                        console.log(`Item: ${itemName}, Found ON-nummer groups:`, Object.keys(onNummerGroups));
+
+                        // Stap 4: Bereken de doorlooptijd voor elke ON-nummer groep
+                        for (const [onNummer, groupData] of Object.entries(onNummerGroups)) {
+                            
+                            // Zet de rijen terug in chronologische volgorde voor de berekening!
+                            const groupRows = groupData.rows.reverse(); 
+                            const associatedItemName = groupData.itemName;
+
+                            // Filter *enkel* 'Status' rijen voor de datumlogica
+                            const statusRows = groupRows.filter(row => row[3] === 'Status');
+                            
+                            if (statusRows.length === 0) {
+                                console.log(`No status rows for ${associatedItemName} / ${onNummer}`);
+                                continue; // Geen statusrijen, geen berekening
+                            }
+
+                            // Find end moment: 'Tekst akkoord'
+                            const endRows = statusRows.filter(row => row[5] === 'Tekst akkoord');
+                            if (endRows.length === 0) {
+                                console.log(`No end date for ${associatedItemName} / ${onNummer}`);
+                                continue;
+                            }
+                            const endDateString = endRows[0][9];
+                            const endDate = parseDate(endDateString);
+                            if (!endDate) {
+                                console.log(`Failed to parse end date for ${associatedItemName} / ${onNummer}`);
+                                continue;
+                            }
+
+                            // Find start moment: 'Gevraagd' OR 'Schrijven...'
+                            const startRows = statusRows.filter(row => {
+                                const toValue = row[5];
+                                return toValue === 'Gevraagd' || (toValue && toValue.startsWith('Schrijven'));
+                            });
+                            if (startRows.length === 0) {
+                                console.log(`No start date for ${associatedItemName} / ${onNummer}`);
+                                continue;
+                            }
+                            
+                            const startDates = startRows
+                                .map(row => parseDate(row[9]))
+                                .filter(date => date !== null);
+                            
+                            if (startDates.length === 0) {
+                                console.log(`Failed to parse start dates for ${associatedItemName} / ${onNummer}`);
+                                continue;
+                            }
+
+                            const startDate = new Date(Math.min(...startDates));
+                            
+                            // Calculate weekdays
+                            const weekdays = calculateWeekdays(startDate, endDate);
+                            
+                            results.push({
+                                itemName: associatedItemName,
+                                onNummer: onNummer,
+                                weekdays: weekdays,
+                                startDate: startDate,
+                                endDate: endDate
+                            });
                         }
-                        
-                        // Find start moment: earliest date where To (col 5) is 'Gevraagd' OR starts with 'Schrijven'
-                        const startRows = rows.filter(row => {
-                            const toValue = row[5]; // Alleen index 5
-                            // Check for 'Gevraagd' or 'Schrijven...' (with ellipsis)
-                            return toValue === 'Gevraagd' || (toValue && toValue.startsWith('Schrijven'));
-                        });
-                        
-                        console.log('Start rows found:', startRows.length);
-                        
-                        if (startRows.length === 0) {
-                            console.log('No start date found for:', itemName);
-                            continue;
-                        }
-                        
-                        const startDates = startRows
-                            .map(row => {
-                                const dateStr = row[9]; // Alleen index 9
-                                console.log('Parsing start date:', dateStr);
-                                return parseDate(dateStr);
-                            })
-                            .filter(date => date !== null);
-                        
-                        if (startDates.length === 0) {
-                            console.log('Failed to parse any start dates for:', itemName);
-                            continue;
-                        }
-                        
-                        const startDate = new Date(Math.min(...startDates));
-                        console.log('Start date:', startDate, 'End date:', endDate);
-                        
-                        // Calculate weekdays
-                        const weekdays = calculateWeekdays(startDate, endDate);
-                        console.log('Weekdays calculated:', weekdays);
-                        
-                        results.push({
-                            itemName: itemName,
-                            weekdays: weekdays,
-                            startDate: startDate, // Store the start date
-                            endDate: endDate     // Store the end date
-                        });
                     }
                     
                     console.log('Total results:', results.length);
                     
                     if (results.length === 0) {
-                        showError('Geen items gevonden met zowel een start- als eindmoment.');
+                        showError('Geen items gevonden met zowel een start- ("Gevraagd" / "Schrijven") als eindmoment ("Tekst akkoord").');
                         return;
                     }
                     
@@ -434,20 +436,26 @@
                     showSuccess(file);
                     hideError();
                     resultsTableBody.innerHTML = '';
-                    // Sort results alphabetically by item name before displaying
-                    results.sort((a, b) => a.itemName.localeCompare(b.itemName));
+                    
+                    // Sorteer op ItemName, en daarbinnen op ON-nummer
+                    results.sort((a, b) => {
+                        if (a.itemName !== b.itemName) {
+                            return a.itemName.localeCompare(b.itemName);
+                        }
+                        return a.onNummer.localeCompare(b.onNummer);
+                    });
                     
                     results.forEach((result, index) => {
                         const row = document.createElement('tr');
                         row.className = index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100';
                         
-                        // Format the dates and get day names
                         const startDateStr = formatDateWithDay(result.startDate, 'nl-NL');
                         const endDateStr = formatDateWithDay(result.endDate, 'nl-NL');
 
-                        // Updated row HTML
+                        // *** AANGEPASTE RIJ-HTML ***
                         row.innerHTML = `
                             <td class="px-6 py-4 text-sm text-gray-900 font-medium whitespace-nowrap">${result.itemName}</td>
+                            <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">${result.onNummer}</td>
                             <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">${startDateStr}</td>
                             <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">${endDateStr}</td>
                             <td class="px-6 py-4 text-sm text-gray-900">
@@ -459,7 +467,7 @@
                         resultsTableBody.appendChild(row);
                     });
                     
-                    resultCount.textContent = `${results.length} ${results.length === 1 ? 'item' : 'items'} gevonden`;
+                    resultCount.textContent = `${results.length} ${results.length === 1 ? 'resultaat' : 'resultaten'} gevonden`;
                     resultsSection.classList.remove('hidden');
                     
                 } catch (error) {
@@ -551,19 +559,25 @@
         function parseDate(dateString) {
             if (!dateString) return null; // Added check for empty string
             const parts = dateString.trim().split(/\s+/); // Use regex to split on one or more spaces
-            if (parts.length !== 2) return null;
+            
+            // *** AANGEPAST: *** Sta datums zonder tijd toe
+            if (parts.length < 1) return null; 
             
             const dateParts = parts[0].split('/');
-            const timeParts = parts[1].split(':');
             
-            if (dateParts.length !== 3 || timeParts.length !== 3) return null;
+            // Default tijd naar 00:00:00 als het mist
+            const timeParts = (parts[1] || '00:00:00').split(':');
             
+            if (dateParts.length !== 3) return null;
+
+             // Zorg dat tijd op zijn minst uur heeft, vul aan indien nodig
+            const hours = parseInt(timeParts[0] || 0, 10);
+            const minutes = parseInt(timeParts[1] || 0, 10);
+            const seconds = parseInt(timeParts[2] || 0, 10);
+
             const day = parseInt(dateParts[0], 10);
             const month = parseInt(dateParts[1], 10) - 1;
             const year = parseInt(dateParts[2], 10);
-            const hours = parseInt(timeParts[0], 10);
-            const minutes = parseInt(timeParts[1], 10);
-            const seconds = parseInt(timeParts[2], 10);
             
             // Check for valid date components
             if (isNaN(day) || isNaN(month) || isNaN(year) || isNaN(hours) || isNaN(minutes) || isNaN(seconds)) {
@@ -651,6 +665,4 @@
     </script>
 </body>
 </html>
-
-
 
